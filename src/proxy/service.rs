@@ -37,7 +37,7 @@ impl Service<Request<Incoming>> for ProxyService {
             });
         }
 
-        // safe call since validate_request covers no host situation
+        // Safe unwrap since validate_request covers no host situation
         let host = String::from(req.uri().host().unwrap());
         let port = req.uri().port_u16().unwrap_or(80);
         let req = clean_request(req);

@@ -2,6 +2,7 @@ use proxy::Proxy;
 use simplelog::{Config, LevelFilter, SimpleLogger};
 use std::net::SocketAddr;
 
+mod middleware;
 mod proxy;
 
 #[tokio::main]
