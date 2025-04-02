@@ -1,0 +1,6 @@
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always,issuer:always
+basicConstraints       = CA:FALSE
+keyUsage               = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment, keyAgreement, keyCertSign
+subjectAltName         = DNS:mail.ru, DNS:*.mail.ru, DNS:*.imgsmail.ru, DNS:account.mail.ru
+issuerAltName          = issuer:copy

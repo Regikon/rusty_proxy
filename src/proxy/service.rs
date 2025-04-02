@@ -1,4 +1,5 @@
-use std::{future::Future, pin::Pin};
+use rustls::pki_types::ServerName;
+use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::net::TcpStream;
 
 use super::utils::validate_request;
@@ -14,7 +15,9 @@ use log::{debug, error, info};
 use super::utils::HEADER_PROXY_CONNECTION;
 
 #[derive(Debug, Clone)]
-pub struct ProxyService {}
+pub struct ProxyService {
+    pub is_tls: bool,
+}
 
 impl Service<Request<Incoming>> for ProxyService {
     type Response = Response<BoxBody<Bytes, hyper::Error>>;
@@ -23,6 +26,12 @@ impl Service<Request<Incoming>> for ProxyService {
 
     fn call(&self, req: Request<Incoming>) -> Self::Future {
         info!("Got request {:?} {:?}", req.method(), req.uri());
+
+        if self.is_tls {
+            let full_host = extract_host(&req).unwrap();
+            let (host, port) = parse_host_header(&full_host, 443).unwrap();
+            return Box::pin(forward_secure_request(req, host, port));
+        }
 
         if let Err(cause) = validate_request(&req) {
             return Box::pin(async move {
@@ -44,7 +53,39 @@ impl Service<Request<Incoming>> for ProxyService {
 
         debug!("{:?}", req);
 
-        Box::pin(forward_request(req, host, port))
+        Box::pin(forward_unsecure_request(req, host, port))
+    }
+}
+
+// Get host from request
+fn extract_host<T>(req: &Request<T>) -> Option<String> {
+    if let Some(addr) = req.headers().get(http::header::HOST) {
+        let addr = addr.to_str();
+        if let Ok(addr) = addr {
+            return Some(String::from(addr));
+        }
+    }
+
+    if let Some(host) = req.uri().host() {
+        return Some(String::from(host));
+    }
+
+    return None;
+}
+
+// Parse host header
+fn parse_host_header(host: &String, fallback_port: u16) -> Result<(String, u16), String> {
+    match host.find(":") {
+        Some(idx) => {
+            if idx == host.len() - 1 {
+                return Err(String::from("unexpected eol while parsing port"));
+            }
+            if let Ok(port) = host[(idx + 1)..].parse::<u16>() {
+                return Ok((String::from(&host[..idx]), port));
+            }
+            Err(String::from("invalid host"))
+        }
+        None => Ok((host.clone(), fallback_port)),
     }
 }
 
@@ -63,11 +104,12 @@ fn clean_request<T>(mut req: Request<T>) -> Request<T> {
 }
 
 // Client side of the proxy
-async fn forward_request(
+async fn forward_unsecure_request(
     req: Request<Incoming>,
     host: String,
     port: u16,
 ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
+    debug!("Forwarding to {}:{}", host, port);
     let stream = TcpStream::connect((host.as_str(), port)).await.unwrap();
     let io = TokioIo::new(stream);
 
@@ -84,8 +126,44 @@ async fn forward_request(
     });
 
     let resp = sender.send_request(req).await?;
-    info!("Got response: {:?}", resp.status());
-    debug!("{:?}", resp);
+    debug!("Got response: {:?}", resp);
+
+    Ok(resp.map(|b| BoxBody::new(b)))
+}
+
+async fn forward_secure_request(
+    req: Request<Incoming>,
+    host: String,
+    port: u16,
+) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
+    debug!("Forwarding to {}:{}", host, port);
+    let stream = TcpStream::connect((host.as_str(), port)).await.unwrap();
+
+    let root_store =
+        rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    let rc_config = Arc::new(config);
+    let conn = tokio_rustls::TlsConnector::from(rc_config);
+    let server_name = ServerName::try_from(host).unwrap();
+    let io = conn.connect(server_name, stream).await.unwrap();
+    let io = TokioIo::new(io);
+
+    let (mut sender, conn) = client::conn::http1::Builder::new()
+        .preserve_header_case(true)
+        .title_case_headers(true)
+        .handshake(io)
+        .await?;
+
+    tokio::task::spawn(async move {
+        if let Err(err) = conn.await {
+            error!("Connection failed: {:?}", err);
+        }
+    });
+
+    let resp = sender.send_request(req).await?;
+    debug!("Got response: {:?}", resp);
 
     Ok(resp.map(|b| BoxBody::new(b)))
 }
