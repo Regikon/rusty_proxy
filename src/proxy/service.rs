@@ -16,8 +16,13 @@ use std::sync::Mutex;
 use super::utils::HEADER_PROXY_CONNECTION;
 
 pub type BodyType = BoxBody<Bytes, hyper::Error>;
-pub type CallbackType =
-    Arc<Mutex<dyn Fn(&http::Request<BodyType>, &http::Response<BodyType>) -> () + Send + 'static>>;
+pub type CallbackType = Arc<
+    Mutex<
+        dyn Fn(&(http::request::Parts, Bytes), &(http::response::Parts, Bytes)) -> ()
+            + Send
+            + 'static,
+    >,
+>;
 
 #[derive(Clone)]
 pub struct ProxyService {
@@ -57,13 +62,13 @@ async fn process_proxy_request(
     // TODO: do not download the body if callback is not set (requires some extra magic with
     // generics)
     let (req_parts, req_body) = req.into_parts();
-    let body_bytes = req_body.collect().await?.to_bytes();
+    let req_body_bytes = req_body.collect().await?.to_bytes();
     // we do not copy the request body because we are using Bytes, which is Arc under hood
     let collected_body =
-        BodyType::new(Full::new(body_bytes.clone()).map_err(|never| match never {}));
+        BodyType::new(Full::new(req_body_bytes.clone()).map_err(|never| match never {}));
     let req = Request::from_parts(req_parts.clone(), collected_body);
 
-    let response: Response<BodyType>;
+    let mut response: Response<BodyType>;
 
     if is_tls {
         let full_host = extract_host(&req).unwrap();
@@ -86,21 +91,25 @@ async fn process_proxy_request(
         let req = clean_request(req);
         response = forward_unsecure_request(req, host, port).await?;
     }
+
     if let Some(callback) = callback {
+        let (response_parts, response_body) = response.into_parts();
+        let resp_body_bytes = response_body.collect().await?.to_bytes();
+
         let callback = callback.lock();
         match callback {
-            Ok(callback) => {
-                // Constructing new request since the original is stolen by client side
-                // It is almost zero-cost (we only copy the headers) so should be fine
-                let req = Request::from_parts(
-                    req_parts,
-                    BodyType::new(Full::new(body_bytes).map_err(|never| match never {})),
-                );
-
-                callback(&req, &response)
-            }
+            Ok(callback) => callback(
+                &(req_parts, req_body_bytes),
+                &(response_parts.clone(), resp_body_bytes.clone()),
+            ),
             Err(_) => error!("failed to use callback: the mutex is poisoned"),
         }
+        response = Response::from_parts(
+            response_parts,
+            Full::new(resp_body_bytes)
+                .map_err(|never| match never {})
+                .boxed(),
+        );
     }
     Ok(response)
 }

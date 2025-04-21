@@ -1,8 +1,8 @@
-mod body;
-mod hyper;
-mod request;
+pub mod body;
+pub mod hyper;
+pub mod request;
 
-mod prelude {
+pub mod prelude {
     pub use super::body::SimpleBody;
     pub use super::request::Request;
 }

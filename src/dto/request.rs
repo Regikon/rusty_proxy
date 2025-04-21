@@ -2,17 +2,17 @@ use super::body::SimpleBody;
 use multimap::MultiMap;
 use std::collections::HashMap;
 
-pub struct Request<'a> {
+#[derive(Debug)]
+pub struct Request {
     pub(super) method: String,
     pub(super) path: String,
     pub(super) query_params: Option<MultiMap<String, String>>,
-    // Header value might be a non valid utf-8 so we have to use byte slice
-    pub(super) headers: MultiMap<String, &'a str>,
-    pub(super) cookies: Option<HashMap<&'a str, &'a str>>,
+    pub(super) headers: MultiMap<String, String>,
+    pub(super) cookies: Option<HashMap<String, String>>,
     pub(super) body: SimpleBody,
 }
 
-impl Request<'_> {
+impl Request {
     pub fn method(&self) -> &String {
         &self.method
     }
@@ -25,11 +25,11 @@ impl Request<'_> {
         &self.query_params
     }
 
-    pub fn headers(&self) -> &MultiMap<String, &str> {
+    pub fn headers(&self) -> &MultiMap<String, String> {
         &self.headers
     }
 
-    pub fn cookies(&self) -> &Option<HashMap<&str, &str>> {
+    pub fn cookies(&self) -> &Option<HashMap<String, String>> {
         &self.cookies
     }
 
