@@ -4,7 +4,7 @@ use tokio::net::TcpStream;
 
 use super::utils::validate_request;
 use bytes::Bytes;
-use http::{Request, Response, Uri};
+use http::{HeaderValue, Request, Response, Uri};
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::client;
@@ -25,7 +25,14 @@ impl Service<Request<Incoming>> for ProxyService {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, req: Request<Incoming>) -> Self::Future {
-        info!("Got request {:?} {:?}", req.method(), req.uri());
+        info!(
+            "Got request. Host: {:?}, {:?} {:?}",
+            req.headers()
+                .get(http::header::HOST)
+                .map_or("", |host| host.to_str().unwrap_or("")),
+            req.method(),
+            req.uri()
+        );
 
         if self.is_tls {
             let full_host = extract_host(&req).unwrap();
