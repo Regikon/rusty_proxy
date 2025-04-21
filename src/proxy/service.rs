@@ -4,23 +4,29 @@ use tokio::net::TcpStream;
 
 use super::utils::validate_request;
 use bytes::Bytes;
-use http::{HeaderValue, Request, Response, Uri};
+use http::{request, Request, Response, Uri};
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::client;
 use hyper::service::Service;
 use hyper_util::rt::TokioIo;
 use log::{debug, error, info};
+use std::sync::Mutex;
 
 use super::utils::HEADER_PROXY_CONNECTION;
 
-#[derive(Debug, Clone)]
+pub type BodyType = BoxBody<Bytes, hyper::Error>;
+pub type CallbackType =
+    Arc<Mutex<dyn Fn(&http::Request<BodyType>, &http::Response<BodyType>) -> () + Send + 'static>>;
+
+#[derive(Clone)]
 pub struct ProxyService {
     pub is_tls: bool,
+    pub callback: Option<CallbackType>,
 }
 
 impl Service<Request<Incoming>> for ProxyService {
-    type Response = Response<BoxBody<Bytes, hyper::Error>>;
+    type Response = Response<BodyType>;
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
@@ -34,34 +40,69 @@ impl Service<Request<Incoming>> for ProxyService {
             req.uri()
         );
 
-        if self.is_tls {
-            let full_host = extract_host(&req).unwrap();
-            let (host, port) = parse_host_header(&full_host, 443).unwrap();
-            return Box::pin(forward_secure_request(req, host, port));
-        }
+        Box::pin(process_proxy_request(
+            req,
+            self.is_tls,
+            self.callback.clone(),
+        ))
+    }
+}
 
+async fn process_proxy_request(
+    req: Request<Incoming>,
+    is_tls: bool,
+    callback: Option<CallbackType>,
+) -> Result<Response<BodyType>, hyper::Error> {
+    // Downloading request body in order to use callback later
+    // TODO: do not download the body if callback is not set (requires some extra magic with
+    // generics)
+    let (req_parts, req_body) = req.into_parts();
+    let body_bytes = req_body.collect().await?.to_bytes();
+    // we do not copy the request body because we are using Bytes, which is Arc under hood
+    let collected_body =
+        BodyType::new(Full::new(body_bytes.clone()).map_err(|never| match never {}));
+    let req = Request::from_parts(req_parts.clone(), collected_body);
+
+    let response: Response<BodyType>;
+
+    if is_tls {
+        let full_host = extract_host(&req).unwrap();
+        let (host, port) = parse_host_header(&full_host, 443).unwrap();
+        response = forward_secure_request(req, host, port).await?;
+    } else {
         if let Err(cause) = validate_request(&req) {
-            return Box::pin(async move {
-                Ok(Response::builder()
-                    .status(http::StatusCode::BAD_REQUEST)
-                    .body(
-                        Full::new(Bytes::from(format!("{}", cause)))
-                            .map_err(|never| match never {})
-                            .boxed(),
-                    )
-                    .unwrap())
-            });
+            return Ok(Response::builder()
+                .status(http::StatusCode::BAD_REQUEST)
+                .body(
+                    Full::new(Bytes::from(format!("{}", cause)))
+                        .map_err(|never| match never {})
+                        .boxed(),
+                )
+                .unwrap());
         }
-
         // Safe unwrap since validate_request covers no host situation
         let host = String::from(req.uri().host().unwrap());
         let port = req.uri().port_u16().unwrap_or(80);
         let req = clean_request(req);
-
-        debug!("{:?}", req);
-
-        Box::pin(forward_unsecure_request(req, host, port))
+        response = forward_unsecure_request(req, host, port).await?;
     }
+    if let Some(callback) = callback {
+        let callback = callback.lock();
+        match callback {
+            Ok(callback) => {
+                // Constructing new request since the original is stolen by client side
+                // It is almost zero-cost (we only copy the headers) so should be fine
+                let req = Request::from_parts(
+                    req_parts,
+                    BodyType::new(Full::new(body_bytes).map_err(|never| match never {})),
+                );
+
+                callback(&req, &response)
+            }
+            Err(_) => error!("failed to use callback: the mutex is poisoned"),
+        }
+    }
+    Ok(response)
 }
 
 // Get host from request
@@ -112,10 +153,10 @@ fn clean_request<T>(mut req: Request<T>) -> Request<T> {
 
 // Client side of the proxy
 async fn forward_unsecure_request(
-    req: Request<Incoming>,
+    req: Request<BodyType>,
     host: String,
     port: u16,
-) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
+) -> Result<Response<BodyType>, hyper::Error> {
     debug!("Forwarding to {}:{}", host, port);
     let stream = TcpStream::connect((host.as_str(), port)).await.unwrap();
     let io = TokioIo::new(stream);
@@ -139,10 +180,10 @@ async fn forward_unsecure_request(
 }
 
 async fn forward_secure_request(
-    req: Request<Incoming>,
+    req: Request<BodyType>,
     host: String,
     port: u16,
-) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
+) -> Result<Response<BodyType>, hyper::Error> {
     debug!("Forwarding to {}:{}", host, port);
     let stream = TcpStream::connect((host.as_str(), port)).await.unwrap();
 

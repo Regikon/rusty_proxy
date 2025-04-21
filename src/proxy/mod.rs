@@ -14,10 +14,14 @@ mod middleware;
 mod service;
 mod utils;
 
+pub use service::BodyType;
+pub use service::CallbackType;
+
 pub struct Proxy {
     addr: SocketAddr,
     cert: String,
     key: String,
+    callback: Option<service::CallbackType>,
 }
 
 impl Proxy {
@@ -51,8 +55,14 @@ impl Proxy {
             let io = TokioIo::new(stream);
 
             let service = TlsUpgrader::new(
-                ProxyService { is_tls: false },
-                ProxyService { is_tls: true },
+                ProxyService {
+                    is_tls: false,
+                    callback: self.callback.clone(),
+                },
+                ProxyService {
+                    is_tls: true,
+                    callback: self.callback.clone(),
+                },
                 config.clone(),
             );
             tokio::task::spawn(async move {
@@ -62,7 +72,7 @@ impl Proxy {
                     .with_upgrades()
                     .await
                 {
-                    error!("Error serving connection: {err}");
+                    error!("Error serving connection: {err:?}");
                 }
             });
         }
@@ -76,6 +86,7 @@ pub struct ProxyBuilder {
     addr: Option<SocketAddr>,
     cert_filepath: Option<String>,
     key_filepath: Option<String>,
+    callback: Option<service::CallbackType>,
 }
 
 impl ProxyBuilder {
@@ -104,6 +115,11 @@ impl ProxyBuilder {
         self
     }
 
+    pub fn with_callback(mut self, callback: service::CallbackType) -> ProxyBuilder {
+        self.callback = Some(callback);
+        self
+    }
+
     pub fn build(mut self) -> Result<Proxy, BuildError> {
         if None == self.addr {
             if None == self.host {
@@ -128,6 +144,7 @@ impl ProxyBuilder {
             addr: self.addr.unwrap(),
             cert: self.cert_filepath.unwrap(),
             key: self.key_filepath.unwrap(),
+            callback: self.callback,
         })
     }
 }
