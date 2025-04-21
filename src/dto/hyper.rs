@@ -32,7 +32,7 @@ impl From<&HyperRequest> for Request<'_> {
                     .clone()
                     .to_str()
                     .unwrap()
-                    .split(',')
+                    .split(';')
                     .map(|cookie| {
                         let cookie_pair: Vec<&str> = cookie.split('=').collect();
                         return (cookie_pair[0], cookie_pair[1]);
