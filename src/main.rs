@@ -3,6 +3,7 @@ use proxy::Proxy;
 use simplelog::{Config, LevelFilter, SimpleLogger};
 
 mod config;
+mod dto;
 mod proxy;
 
 #[tokio::main]
