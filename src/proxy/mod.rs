@@ -38,13 +38,13 @@ impl Proxy {
             .with_single_cert(certs, private_key)
             .unwrap();
 
-        info!("Listening on port {}", self.addr.port());
+        info!("Listening on address {:?}", self.addr);
 
         loop {
             let stream = match listener.accept().await {
                 Ok((stream, _)) => stream,
                 Err(e) => {
-                    error!("failed to accept connection: {:?}", e);
+                    error!("Failed to accept connection: {:?}", e);
                     continue;
                 }
             };

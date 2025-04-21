@@ -1,21 +1,21 @@
+use dotenv::dotenv;
 use proxy::Proxy;
 use simplelog::{Config, LevelFilter, SimpleLogger};
-use std::net::SocketAddr;
 
+mod config;
 mod proxy;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    SimpleLogger::init(LevelFilter::Info, Config::default()).unwrap();
+    dotenv().ok();
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    SimpleLogger::init(LevelFilter::Info, Config::default()).unwrap();
+    let config = config::Config::from_env()?;
 
     let proxy = Proxy::builder()
-        .with_addr(addr)
-        .with_tls(
-            String::from("./certs/ca.crt"),
-            String::from("./certs/ca.key"),
-        )
+        .with_host(config.proxy_host().clone())
+        .with_port(config.proxy_port())
+        .with_tls(config.ssl_certificate().clone(), config.ssl_key().clone())
         .build()?;
 
     proxy.serve().await
