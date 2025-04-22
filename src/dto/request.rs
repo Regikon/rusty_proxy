@@ -41,4 +41,12 @@ impl Request {
     pub fn body(&self) -> &SimpleBody {
         &self.body
     }
+
+    pub fn query_params_mut(&mut self) -> &mut Option<MultiMap<String, String>> {
+        &mut self.query_params
+    }
+
+    pub fn body_mut(&mut self) -> &mut SimpleBody {
+        &mut self.body
+    }
 }

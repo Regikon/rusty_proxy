@@ -2,7 +2,7 @@ use axum::{routing::get, Router};
 
 use dotenv::dotenv;
 use log::{info, LevelFilter};
-use rusty_proxy::api::handlers::{get_reqresp_by_id, get_reqresps_list, resend_request};
+use rusty_proxy::api::handlers::{get_reqresp_by_id, get_reqresps_list, resend_request, scan_xss};
 use rusty_proxy::api::AppState;
 use rusty_proxy::config::Config;
 use rusty_proxy::scanner::SimpleScanner;
@@ -26,6 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/requests", get(get_reqresps_list))
         .route("/requests/{reqresp_id}", get(get_reqresp_by_id))
         .route("/repeat/{reqresp_id}", get(resend_request))
+        .route("/scan/{reqresp_id}", get(scan_xss))
         .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await?;

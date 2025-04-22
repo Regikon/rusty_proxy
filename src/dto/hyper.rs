@@ -5,6 +5,7 @@ use crate::proxy::BodyType;
 use super::{body::SimpleBody, Request, Response};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
+use log::debug;
 use multimap::MultiMap;
 use url_encoded_data::UrlEncodedData;
 
@@ -98,11 +99,13 @@ impl Into<(http::request::Request<BodyType>, bool)> for Request {
                         acc
                     })
                     .unwrap();
+                self.path.push_str("?");
                 self.path.push_str(query.as_str());
                 self.path
             }
             None => self.path,
         };
+        debug!("{:?}", path_and_query);
         let uri = http::Uri::builder()
             .path_and_query(path_and_query)
             .build()

@@ -43,3 +43,23 @@ pub async fn resend_request(
         .unwrap()
         .into_response()
 }
+
+pub async fn scan_xss(
+    State(state): State<Arc<AppState>>,
+    Path(reqresp_id): Path<String>,
+) -> hyper::Response<axum::body::Body> {
+    let reqresp = match state.db().get_reqresp_by_id(&reqresp_id).await.unwrap() {
+        Some(reqresp) => reqresp,
+        None => {
+            return (http::StatusCode::NOT_FOUND, axum::response::Html::from("")).into_response()
+        }
+    };
+    match state.scanner().scan_xss(reqresp).await {
+        Ok(results) => Json(results).into_response(),
+        Err(e) => (
+            http::StatusCode::INTERNAL_SERVER_ERROR,
+            axum::response::Html::from(format!("Got error while scanning: {:?}", e)),
+        )
+            .into_response(),
+    }
+}
