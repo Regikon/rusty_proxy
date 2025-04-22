@@ -93,11 +93,11 @@ impl Scanner for SimpleScanner {
                     for (key, _) in b {
                         let mut req = req.clone();
                         let param_value = match req.body_mut() {
-                            SimpleBody::Blob(_) => continue,
+                            SimpleBody::Blob(_) => break,
                             SimpleBody::UrlEncoded(copied_b) => copied_b.get_mut(key).unwrap(),
                         };
                         param_value.clear();
-                        param_value.push_str(XSS_STRING);
+                        param_value.push_str(ORIGINAL_XSS_STRING);
                         debug!("Scanning with request: {:?}", req);
                         let response_body = resend_request_internal(req)
                             .await?
