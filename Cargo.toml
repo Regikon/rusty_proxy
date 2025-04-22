@@ -19,3 +19,8 @@ webpki-roots = "0.26"
 dotenv = "0.15"
 multimap = "0.10.0"
 url_encoded_data = "0.6.1"
+serde = {version = "1.0.188", features = ["derive"]}
+futures = "0.3.28"
+
+[dependencies.mongodb]
+version = "3.2.3"

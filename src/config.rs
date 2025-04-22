@@ -7,6 +7,7 @@ pub struct Config {
     proxy_port: u16,
     ssl_certificate: String,
     ssl_key: String,
+    mongodb_uri: String,
 }
 
 mod rusty_env {
@@ -14,8 +15,15 @@ mod rusty_env {
     pub const PROXY_PORT: &str = "RUSTY_PROXY_PORT";
     pub const SSL_CERTIFICATE: &str = "RUSTY_PROXY_SSL_CERTIFICATE";
     pub const SSL_PRIVATE_KEY: &str = "RUSTY_PROXY_SSL_PRIVATE_KEY";
+    pub const MONGO_DB_CONNECTION_URL: &str = "MONGO_DB_CONNECTION_URL";
 
-    pub const ALL_PARAMS: [&str; 4] = [PROXY_HOST, PROXY_PORT, SSL_CERTIFICATE, SSL_PRIVATE_KEY];
+    pub const ALL_PARAMS: [&str; 5] = [
+        PROXY_HOST,
+        PROXY_PORT,
+        SSL_CERTIFICATE,
+        SSL_PRIVATE_KEY,
+        MONGO_DB_CONNECTION_URL,
+    ];
 }
 
 impl Config {
@@ -33,6 +41,10 @@ impl Config {
 
     pub fn ssl_key(&self) -> &String {
         &self.ssl_key
+    }
+
+    pub fn mongodb_uri(&self) -> &String {
+        &self.mongodb_uri
     }
 
     pub fn from_env() -> Result<Self, ConfigParsingError> {
@@ -54,6 +66,10 @@ impl Config {
                 })?,
             ssl_certificate: raw_config.get(rusty_env::SSL_CERTIFICATE).unwrap().clone(),
             ssl_key: raw_config.get(rusty_env::SSL_PRIVATE_KEY).unwrap().clone(),
+            mongodb_uri: raw_config
+                .get(rusty_env::MONGO_DB_CONNECTION_URL)
+                .unwrap()
+                .clone(),
         });
     }
 }

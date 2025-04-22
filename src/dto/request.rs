@@ -2,7 +2,7 @@ use super::body::SimpleBody;
 use multimap::MultiMap;
 use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Request {
     pub(super) is_https: bool,
     pub(super) method: String,

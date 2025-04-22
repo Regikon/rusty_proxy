@@ -1,8 +1,8 @@
-use bytes::Bytes;
 use multimap::MultiMap;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SimpleBody {
-    Blob(Bytes),
+    Blob(Vec<u8>),
     UrlEncoded(MultiMap<String, String>),
 }

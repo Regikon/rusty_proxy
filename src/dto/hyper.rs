@@ -1,15 +1,15 @@
 use std::string::FromUtf8Error;
 
-use super::{body::SimpleBody, prelude::Response, request::Request};
+use super::{body::SimpleBody, Request, Response};
 use bytes::Bytes;
 use multimap::MultiMap;
 use url_encoded_data::UrlEncodedData;
 
 const MIME_URL_ENCODED: &str = "application/x-www-form-urlencoded";
 
-type HyperBody = Bytes;
-type HyperRequest = (http::request::Parts, HyperBody, bool);
-type HyperResponse = (http::response::Parts, HyperBody);
+pub type HyperBody = Bytes;
+pub type HyperRequest = (http::request::Parts, HyperBody, bool);
+pub type HyperResponse = (http::response::Parts, HyperBody);
 
 impl From<HyperRequest> for Request {
     fn from(req: HyperRequest) -> Self {
@@ -42,7 +42,10 @@ impl From<HyperRequest> for Request {
                     .split(';')
                     .map(|cookie| {
                         let cookie_pair: Vec<&str> = cookie.split('=').collect();
-                        return (cookie_pair[0].to_string(), cookie_pair[1].to_string());
+                        return (
+                            cookie_pair[0].trim().to_string(),
+                            cookie_pair.get(1).map_or("".to_string(), |s| s.to_string()),
+                        );
                     })
                     .collect()
             });
@@ -106,15 +109,15 @@ fn parse_body(b: HyperBody, is_urlencoded: bool) -> SimpleBody {
         let before_parsing = b.clone();
         match body_as_url_encoded(b) {
             Ok(parsed_body) => SimpleBody::UrlEncoded(parsed_body),
-            Err(_) => SimpleBody::Blob(before_parsing),
+            Err(_) => SimpleBody::Blob(body_as_blob(before_parsing)),
         }
     } else {
         SimpleBody::Blob(body_as_blob(b))
     }
 }
 
-fn body_as_blob(b: HyperBody) -> Bytes {
-    b
+fn body_as_blob(b: HyperBody) -> Vec<u8> {
+    b.to_vec()
 }
 
 fn body_as_url_encoded(b: HyperBody) -> Result<MultiMap<String, String>, FromUtf8Error> {

@@ -18,7 +18,7 @@ use super::utils::HEADER_PROXY_CONNECTION;
 pub type BodyType = BoxBody<Bytes, hyper::Error>;
 pub type CallbackType = Arc<
     Mutex<
-        dyn Fn(&(http::request::Parts, Bytes, bool), &(http::response::Parts, Bytes)) -> ()
+        dyn Fn((http::request::Parts, Bytes, bool), (http::response::Parts, Bytes)) -> ()
             + Send
             + 'static,
     >,
@@ -100,8 +100,8 @@ async fn process_proxy_request(
         let callback = callback.lock();
         match callback {
             Ok(callback) => callback(
-                &(req_parts, req_body_bytes, is_tls),
-                &(response_parts.clone(), resp_body_bytes.clone()),
+                (req_parts, req_body_bytes, is_tls),
+                (response_parts.clone(), resp_body_bytes.clone()),
             ),
             Err(_) => error!("failed to use callback: the mutex is poisoned"),
         }

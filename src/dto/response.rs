@@ -1,7 +1,7 @@
 use super::body::SimpleBody;
 use multimap::MultiMap;
 
-#[derive(Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Response {
     pub(super) code: u16,
     pub(super) message: String,
