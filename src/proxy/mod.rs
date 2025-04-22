@@ -10,9 +10,10 @@ use service::ProxyService;
 
 use thiserror::Error;
 
+pub mod client;
 mod middleware;
 mod service;
-mod utils;
+pub mod utils;
 
 pub use service::BodyType;
 pub use service::CallbackType;

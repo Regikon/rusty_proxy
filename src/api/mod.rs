@@ -1,5 +1,6 @@
 pub mod handlers;
 
+use crate::scanner::SimpleScanner;
 use crate::storage::mongodb_storage::MongoDbStorage;
 use std::sync::Arc;
 
@@ -7,6 +8,7 @@ use super::dto::*;
 
 pub struct AppState {
     db: Arc<MongoDbStorage>,
+    scanner: SimpleScanner,
 }
 
 impl AppState {
@@ -14,7 +16,11 @@ impl AppState {
         self.db.clone()
     }
 
-    pub fn new(db: Arc<MongoDbStorage>) -> Self {
-        AppState { db }
+    pub fn scanner(&self) -> SimpleScanner {
+        self.scanner.clone()
+    }
+
+    pub fn new(db: Arc<MongoDbStorage>, scanner: SimpleScanner) -> Self {
+        AppState { db, scanner }
     }
 }

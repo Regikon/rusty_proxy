@@ -1,7 +1,10 @@
 use std::string::FromUtf8Error;
 
+use crate::proxy::BodyType;
+
 use super::{body::SimpleBody, Request, Response};
 use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
 use multimap::MultiMap;
 use url_encoded_data::UrlEncodedData;
 
@@ -73,6 +76,78 @@ impl From<HyperRequest> for Request {
             cookies,
             body,
         }
+    }
+}
+
+impl Into<(http::request::Request<BodyType>, bool)> for Request {
+    fn into(mut self) -> (http::request::Request<BodyType>, bool) {
+        let path_and_query = match self.query_params {
+            Some(query_params) => {
+                let query = query_params
+                    .flat_iter()
+                    .map(|(k, v)| {
+                        let mut result = String::new();
+                        result.push_str(k);
+                        result.push_str("=");
+                        result.push_str(v);
+                        result
+                    })
+                    .reduce(|mut acc, query_param| {
+                        acc.push_str(&query_param);
+                        acc.push('&');
+                        acc
+                    })
+                    .unwrap();
+                self.path.push_str(query.as_str());
+                self.path
+            }
+            None => self.path,
+        };
+        let uri = http::Uri::builder()
+            .path_and_query(path_and_query)
+            .build()
+            .unwrap();
+        let mut req = http::request::Builder::new()
+            .method(self.method.as_str())
+            .uri(uri);
+        for (query_name, query_val) in self.headers.flat_iter() {
+            req = req.header(query_name.clone(), query_val.clone());
+        }
+        if let Some(cookies) = self.cookies {
+            let cookie_value = cookies
+                .into_iter()
+                .map(|(k, v)| {
+                    let mut result = String::new();
+                    result.push_str(k.as_str());
+                    result.push_str("=");
+                    result.push_str(v.as_str());
+                    result
+                })
+                .reduce(|mut acc, pair| {
+                    acc.push_str(pair.as_str());
+                    acc.push_str("; ");
+                    acc
+                })
+                .unwrap();
+            req = req.header(http::header::COOKIE, cookie_value);
+        };
+        let req = req
+            .body(
+                match self.body {
+                    SimpleBody::Blob(b) => Full::new(Bytes::from(b)),
+                    SimpleBody::UrlEncoded(b) => {
+                        let mut data = UrlEncodedData::from("?");
+                        b.flat_iter().for_each(|(k, v)| {
+                            data.set_one(k.as_str(), v.as_str());
+                        });
+                        Full::new(Bytes::from(data.to_final_string().into_bytes()))
+                    }
+                }
+                .map_err(|never| match never {})
+                .boxed(),
+            )
+            .unwrap();
+        (req, self.is_https)
     }
 }
 

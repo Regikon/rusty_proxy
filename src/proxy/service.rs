@@ -1,19 +1,14 @@
-use rustls::pki_types::ServerName;
 use std::{future::Future, pin::Pin, sync::Arc};
-use tokio::net::TcpStream;
 
-use super::utils::validate_request;
+use super::utils::{clean_request, extract_host, parse_host_header};
+use super::{client::Client, utils::validate_request};
 use bytes::Bytes;
-use http::{Request, Response, Uri};
+use http::{Request, Response};
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::body::Incoming;
-use hyper::client;
 use hyper::service::Service;
-use hyper_util::rt::TokioIo;
 use log::{debug, error, info};
 use std::sync::Mutex;
-
-use super::utils::HEADER_PROXY_CONNECTION;
 
 pub type BodyType = BoxBody<Bytes, hyper::Error>;
 pub type CallbackType = Arc<
@@ -70,11 +65,12 @@ async fn process_proxy_request(
     // The request is changed when proxy connection header is removed
     let mut req = Request::from_parts(req_parts.clone(), collected_body);
     let mut response: Response<BodyType>;
+    let host: String;
+    let port: u16;
 
     if is_tls {
         let full_host = extract_host(&req).unwrap();
-        let (host, port) = parse_host_header(&full_host, 443).unwrap();
-        response = forward_secure_request(req, host, port).await?;
+        (host, port) = parse_host_header(&full_host, 443).unwrap();
     } else {
         if let Err(cause) = validate_request(&req) {
             return Ok(Response::builder()
@@ -87,11 +83,14 @@ async fn process_proxy_request(
                 .unwrap());
         }
         // Safe unwrap since validate_request covers no host situation
-        let host = String::from(req.uri().host().unwrap());
-        let port = req.uri().port_u16().unwrap_or(80);
+        host = String::from(req.uri().host().unwrap());
+        port = req.uri().port_u16().unwrap_or(80);
         req = clean_request(req);
-        response = forward_unsecure_request(req, host, port).await?;
     }
+
+    debug!("Forwarding to {}:{}", host, port);
+    response = Client::send_request(req, host, port, is_tls).await?;
+    debug!("Got response: {:?}", response);
 
     if let Some(callback) = callback {
         let (response_parts, response_body) = response.into_parts();
@@ -113,115 +112,4 @@ async fn process_proxy_request(
         );
     }
     Ok(response)
-}
-
-// Get host from request
-fn extract_host<T>(req: &Request<T>) -> Option<String> {
-    if let Some(addr) = req.headers().get(http::header::HOST) {
-        let addr = addr.to_str();
-        if let Ok(addr) = addr {
-            return Some(String::from(addr));
-        }
-    }
-
-    if let Some(host) = req.uri().host() {
-        return Some(String::from(host));
-    }
-
-    return None;
-}
-
-// Parse host header
-fn parse_host_header(host: &String, fallback_port: u16) -> Result<(String, u16), String> {
-    match host.find(":") {
-        Some(idx) => {
-            if idx == host.len() - 1 {
-                return Err(String::from("unexpected eol while parsing port"));
-            }
-            if let Ok(port) = host[(idx + 1)..].parse::<u16>() {
-                return Ok((String::from(&host[..idx]), port));
-            }
-            Err(String::from("invalid host"))
-        }
-        None => Ok((host.clone(), fallback_port)),
-    }
-}
-
-// Clean proxy request to make it valid non-proxy request
-fn clean_request<T>(mut req: Request<T>) -> Request<T> {
-    req.headers_mut().remove(HEADER_PROXY_CONNECTION);
-    let full_uri = req.uri();
-    let mut clean_uri = Uri::builder();
-    if let Some(p_a_q) = full_uri.path_and_query() {
-        clean_uri = clean_uri.path_and_query(p_a_q.clone());
-    }
-    // Safe since valid Request holds valid url
-    let clean_uri = clean_uri.build().unwrap();
-    *req.uri_mut() = clean_uri;
-    req
-}
-
-// Client side of the proxy
-async fn forward_unsecure_request(
-    req: Request<BodyType>,
-    host: String,
-    port: u16,
-) -> Result<Response<BodyType>, hyper::Error> {
-    debug!("Forwarding to {}:{}", host, port);
-    let stream = TcpStream::connect((host.as_str(), port)).await.unwrap();
-    let io = TokioIo::new(stream);
-
-    let (mut sender, conn) = client::conn::http1::Builder::new()
-        .preserve_header_case(true)
-        .title_case_headers(true)
-        .handshake(io)
-        .await?;
-
-    tokio::task::spawn(async move {
-        if let Err(err) = conn.await {
-            error!("Connection failed: {:?}", err);
-        }
-    });
-
-    let resp = sender.send_request(req).await?;
-    debug!("Got response: {:?}", resp);
-
-    Ok(resp.map(|b| BoxBody::new(b)))
-}
-
-async fn forward_secure_request(
-    req: Request<BodyType>,
-    host: String,
-    port: u16,
-) -> Result<Response<BodyType>, hyper::Error> {
-    debug!("Forwarding to {}:{}", host, port);
-    let stream = TcpStream::connect((host.as_str(), port)).await.unwrap();
-
-    let root_store =
-        rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
-    let rc_config = Arc::new(config);
-    let conn = tokio_rustls::TlsConnector::from(rc_config);
-    let server_name = ServerName::try_from(host).unwrap();
-    let io = conn.connect(server_name, stream).await.unwrap();
-    let io = TokioIo::new(io);
-
-    let (mut sender, conn) = client::conn::http1::Builder::new()
-        .preserve_header_case(true)
-        .title_case_headers(true)
-        .handshake(io)
-        .await?;
-
-    tokio::task::spawn(async move {
-        if let Err(err) = conn.await {
-            error!("Connection failed: {:?}", err);
-        }
-    });
-
-    let resp = sender.send_request(req).await?;
-    debug!("Got response: {:?}", resp);
-
-    Ok(resp.map(|b| BoxBody::new(b)))
 }

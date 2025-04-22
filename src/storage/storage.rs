@@ -1,10 +1,7 @@
-use futures;
-use std::pin::Pin;
-
 use crate::dto::Reqresp;
 use thiserror::Error;
 
-pub type DynFuture<T> = Pin<Box<dyn futures::Future<Output = T> + Send>>;
+use crate::DynFuture;
 
 pub trait ReqrespStorage {
     fn add_reqresp(&self, r: Reqresp) -> DynFuture<Result<(), StorageError>>;

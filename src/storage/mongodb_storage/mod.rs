@@ -1,8 +1,8 @@
 use crate::dto::Reqresp;
 
-use super::storage::DynFuture;
 use super::storage::ReqrespStorage;
 use super::storage::StorageError;
+use crate::DynFuture;
 
 use futures::TryStreamExt;
 use mongodb::{bson::doc, Client, Collection};
