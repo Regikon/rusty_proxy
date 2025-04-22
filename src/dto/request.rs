@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct Request {
+    pub(super) is_https: bool,
     pub(super) method: String,
     pub(super) path: String,
     pub(super) query_params: Option<MultiMap<String, String>>,
@@ -13,6 +14,10 @@ pub struct Request {
 }
 
 impl Request {
+    pub fn is_https(&self) -> bool {
+        self.is_https
+    }
+
     pub fn method(&self) -> &String {
         &self.method
     }

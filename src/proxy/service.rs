@@ -4,7 +4,7 @@ use tokio::net::TcpStream;
 
 use super::utils::validate_request;
 use bytes::Bytes;
-use http::{request, Request, Response, Uri};
+use http::{Request, Response, Uri};
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::client;
@@ -18,7 +18,7 @@ use super::utils::HEADER_PROXY_CONNECTION;
 pub type BodyType = BoxBody<Bytes, hyper::Error>;
 pub type CallbackType = Arc<
     Mutex<
-        dyn Fn(&(http::request::Parts, Bytes), &(http::response::Parts, Bytes)) -> ()
+        dyn Fn(&(http::request::Parts, Bytes, bool), &(http::response::Parts, Bytes)) -> ()
             + Send
             + 'static,
     >,
@@ -66,8 +66,9 @@ async fn process_proxy_request(
     // we do not copy the request body because we are using Bytes, which is Arc under hood
     let collected_body =
         BodyType::new(Full::new(req_body_bytes.clone()).map_err(|never| match never {}));
-    let req = Request::from_parts(req_parts.clone(), collected_body);
 
+    // The request is changed when proxy connection header is removed
+    let mut req = Request::from_parts(req_parts.clone(), collected_body);
     let mut response: Response<BodyType>;
 
     if is_tls {
@@ -88,7 +89,7 @@ async fn process_proxy_request(
         // Safe unwrap since validate_request covers no host situation
         let host = String::from(req.uri().host().unwrap());
         let port = req.uri().port_u16().unwrap_or(80);
-        let req = clean_request(req);
+        req = clean_request(req);
         response = forward_unsecure_request(req, host, port).await?;
     }
 
@@ -99,7 +100,7 @@ async fn process_proxy_request(
         let callback = callback.lock();
         match callback {
             Ok(callback) => callback(
-                &(req_parts, req_body_bytes),
+                &(req_parts, req_body_bytes, is_tls),
                 &(response_parts.clone(), resp_body_bytes.clone()),
             ),
             Err(_) => error!("failed to use callback: the mutex is poisoned"),

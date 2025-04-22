@@ -1,20 +1,29 @@
 use std::string::FromUtf8Error;
 
-use super::{body::SimpleBody, request::Request};
+use super::{body::SimpleBody, prelude::Response, request::Request};
 use bytes::Bytes;
 use multimap::MultiMap;
 use url_encoded_data::UrlEncodedData;
 
+const MIME_URL_ENCODED: &str = "application/x-www-form-urlencoded";
+
 type HyperBody = Bytes;
-type HyperRequest = (http::request::Parts, HyperBody);
+type HyperRequest = (http::request::Parts, HyperBody, bool);
+type HyperResponse = (http::response::Parts, HyperBody);
 
 impl From<HyperRequest> for Request {
     fn from(req: HyperRequest) -> Self {
-        let (parts, body) = req;
+        let (parts, body, is_https) = req;
+        let http::request::Parts {
+            method,
+            uri,
+            headers,
+            ..
+        } = parts;
 
-        let method = parts.method.to_string();
-        let path = parts.uri.path().to_string();
-        let query_params = parts.uri.query().map(|query| {
+        let method = method.to_string();
+        let path = uri.path().to_string();
+        let query_params = uri.query().map(|query| {
             UrlEncodedData::from(query)
                 .as_string_pairs()
                 .iter()
@@ -22,8 +31,7 @@ impl From<HyperRequest> for Request {
                 .collect()
         });
 
-        let cookies = parts
-            .headers
+        let cookies = headers
             .get(http::header::COOKIE)
             .clone()
             .map(|cookie_value| {
@@ -39,16 +47,22 @@ impl From<HyperRequest> for Request {
                     .collect()
             });
 
-        let headers = parts
-            .headers
+        let is_urlencoded = headers
+            .get(http::header::CONTENT_TYPE)
+            .iter()
+            .find(|&value| value.to_str().unwrap() == MIME_URL_ENCODED)
+            .is_some();
+
+        let headers = headers
             .iter()
             .filter(|(name, _)| *name != http::header::COOKIE)
             .map(|(name, value)| (name.to_string(), value.to_str().unwrap().to_string()))
             .collect();
 
-        let body = SimpleBody::Blob(body_as_blob(body));
+        let body = parse_body(body, is_urlencoded);
 
         Request {
+            is_https,
             method,
             path,
             query_params,
@@ -56,6 +70,46 @@ impl From<HyperRequest> for Request {
             cookies,
             body,
         }
+    }
+}
+
+impl From<HyperResponse> for Response {
+    fn from((parts, body): HyperResponse) -> Self {
+        let http::response::Parts {
+            status, headers, ..
+        } = parts;
+        let is_urlencoded = headers
+            .get(http::header::CONTENT_TYPE)
+            .iter()
+            .find(|&value| value.to_str().unwrap() == MIME_URL_ENCODED)
+            .is_some();
+        let code = status.clone().into();
+        let message = status.canonical_reason().unwrap().to_string();
+        let headers = headers
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_str().unwrap().to_string()))
+            .collect();
+
+        let body = parse_body(body, is_urlencoded);
+
+        Response {
+            code,
+            message,
+            headers,
+            body,
+        }
+    }
+}
+
+fn parse_body(b: HyperBody, is_urlencoded: bool) -> SimpleBody {
+    if is_urlencoded {
+        let before_parsing = b.clone();
+        match body_as_url_encoded(b) {
+            Ok(parsed_body) => SimpleBody::UrlEncoded(parsed_body),
+            Err(_) => SimpleBody::Blob(before_parsing),
+        }
+    } else {
+        SimpleBody::Blob(body_as_blob(b))
     }
 }
 
