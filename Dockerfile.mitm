@@ -1,0 +1,10 @@
+FROM rust:latest AS builder
+WORKDIR /app
+COPY . .
+RUN cargo build --release --bin mitm
+
+FROM debian:bookworm-slim
+WORKDIR /app
+COPY --from=builder /app/target/release/mitm .
+EXPOSE 8080
+CMD ["./mitm"]

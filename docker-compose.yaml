@@ -1,0 +1,54 @@
+version: '3.9'
+
+services:
+  mongodb:
+    image: mongodb/mongodb-community-server:7.0-ubuntu2204
+    container_name: mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URI: mongodb://root:example@mongo:27017
+      RUSTY_PROXY_HOST: "0.0.0.0"
+      RUSTY_PROXY_PORT: "8080"
+      RUSTY_PROXY_API_HOST: "0.0.0.0"
+      RUSTY_PROXY_API_PORT: "8000"
+      RUSTY_PROXY_MONGO_DB_CONNECTION_URL: "mongodb://root:example@mongo:27017/?authSource=admin&directConnection=true&serverSelectionTimeoutMS=2000"
+      RUSTY_PROXY_SSL_CERTIFICATE: "/certs/ca.crt"
+      RUSTY_PROXY_SSL_PRIVATE_KEY: "/certs/ca.key"
+    volumes:
+      - ./certs:/certs:ro
+    depends_on:
+      - mongodb
+
+  mitm:
+    build:
+      context: .
+      dockerfile: Dockerfile.mitm
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      MONGO_URI: mongodb://root:example@mongo:27017
+      RUSTY_PROXY_HOST: "0.0.0.0"
+      RUSTY_PROXY_PORT: "8080"
+      RUSTY_PROXY_API_HOST: "0.0.0.0"
+      RUSTY_PROXY_API_PORT: "8000"
+      RUSTY_PROXY_MONGO_DB_CONNECTION_URL: "mongodb://root:example@mongo:27017/?authSource=admin&directConnection=true&serverSelectionTimeoutMS=2000"
+      RUSTY_PROXY_SSL_CERTIFICATE: "/certs/ca.crt"
+      RUSTY_PROXY_SSL_PRIVATE_KEY: "/certs/ca.key"
+    volumes:
+      - ./certs:/certs:ro
+    depends_on:
+      - mongodb
