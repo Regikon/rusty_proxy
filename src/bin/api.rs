@@ -2,7 +2,7 @@ use axum::{routing::get, Router};
 
 use dotenv::dotenv;
 use log::{info, LevelFilter};
-use rusty_proxy::api::handlers::{hello, reqresps_list};
+use rusty_proxy::api::handlers::{get_reqresp_by_id, get_reqresps_list};
 use rusty_proxy::api::AppState;
 use rusty_proxy::config::Config;
 use rusty_proxy::storage::mongodb_storage::MongoDbStorage;
@@ -19,10 +19,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let db = Arc::new(MongoDbStorage::new(client));
     let app_state = Arc::new(AppState::new(db));
 
-    SimpleLogger::init(LevelFilter::Info, simplelog::Config::default()).unwrap();
+    SimpleLogger::init(LevelFilter::Debug, simplelog::Config::default()).unwrap();
     let app = Router::new()
-        .route("/", get(hello))
-        .route("/requests/", get(reqresps_list))
+        .route("/requests", get(get_reqresps_list))
+        .route("/requests/{reqresp_id}", get(get_reqresp_by_id))
         .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await?;

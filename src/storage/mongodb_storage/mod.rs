@@ -54,4 +54,18 @@ impl ReqrespStorage for MongoDbStorage {
             Ok(result)
         })
     }
+
+    fn get_reqresp_by_id(&self, id: &String) -> DynFuture<Result<Option<Reqresp>, StorageError>> {
+        let database = self.client.database(DATABASE_NAME);
+        let reqresps: Collection<dto_bindings::Reqresp> = database.collection(COLLECTION_NAME);
+        let id = id.clone();
+        Box::pin(async move {
+            let id = bson::oid::ObjectId::parse_str(id).map_err(|_| StorageError::Unknown)?;
+            let reqresp = reqresps.find_one(doc! {"_id": id}).await;
+            if let Err(_) = reqresp {
+                return Err(StorageError::Unknown);
+            }
+            Ok(reqresp.unwrap().map(|r| r.into()))
+        })
+    }
 }
