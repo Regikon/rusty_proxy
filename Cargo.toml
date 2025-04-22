@@ -21,6 +21,16 @@ multimap = "0.10.0"
 url_encoded_data = "0.6.1"
 serde = {version = "1.0.188", features = ["derive"]}
 futures = "0.3.28"
+axum = "=0.8.3"
+
 
 [dependencies.mongodb]
 version = "3.2.3"
+
+[[bin]]
+name = "mitm"
+path = "src/bin/mitm.rs"
+
+[[bin]]
+name = "api"
+path = "src/bin/api.rs"
