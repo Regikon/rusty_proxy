@@ -8,6 +8,7 @@ use rusty_proxy::config::Config;
 use rusty_proxy::scanner::SimpleScanner;
 use rusty_proxy::storage::mongodb_storage::MongoDbStorage;
 use simplelog::SimpleLogger;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -29,8 +30,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/scan/{reqresp_id}", get(scan_xss))
         .with_state(app_state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await?;
-    info!("Api listening on 0.0.0.0:8000");
+    let ip = config.api_host().clone().parse()?;
+    let addr = SocketAddr::new(ip, config.api_port());
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!("Api listening on {addr}");
     axum::serve(listener, app).await?;
     Ok(())
 }
