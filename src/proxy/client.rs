@@ -2,7 +2,7 @@ use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 
 use super::BodyType;
-use http::{Request, Response};
+use http::{HeaderValue, Request, Response};
 use http_body_util::combinators::BoxBody;
 use hyper::client;
 use log::error;
@@ -14,11 +14,14 @@ pub struct Client {}
 
 impl Client {
     pub async fn send_request(
-        req: Request<BodyType>,
+        mut req: Request<BodyType>,
         host: String,
         port: u16,
         is_https: bool,
     ) -> Result<Response<BodyType>, hyper::Error> {
+        if let Some(accept_encoding) = req.headers_mut().get_mut(http::header::ACCEPT_ENCODING) {
+            *accept_encoding = HeaderValue::from_str("").unwrap();
+        }
         if is_https {
             Client::send_secure_request(req, host, port).await
         } else {
